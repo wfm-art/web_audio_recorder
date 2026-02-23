@@ -126,9 +126,16 @@
 
     recordBtn.onclick = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // 1. Configuración de hardware específica para evitar fallos en Mac
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 44100
+                } 
+            });
             
-            // Detección mejorada de formatos para Mac y iPad
+            // 2. Selección de formato (WebM para Mac/PC, MP4 para iOS)
             const types = [
                 'audio/webm;codecs=opus', 
                 'audio/webm', 
@@ -137,7 +144,11 @@
             ];
             const supportedType = types.find(type => MediaRecorder.isTypeSupported(type));
             
-            mediaRecorder = new MediaRecorder(stream, { mimeType: supportedType });
+            mediaRecorder = new MediaRecorder(stream, { 
+                mimeType: supportedType,
+                audioBitsPerSecond: 128000
+            });
+
             audioChunks = [];
 
             mediaRecorder.ondataavailable = e => {
@@ -148,8 +159,8 @@
                 clearInterval(timerInterval);
                 const blob = new Blob(audioChunks, { type: supportedType });
                 
-                if (blob.size === 0) {
-                    status.innerText = "❌ Error: Audio empty / Audio vacío";
+                if (blob.size < 100) {
+                    status.innerText = "❌ Error: Audio too small / Audio muy pequeño";
                     return;
                 }
 
@@ -159,28 +170,28 @@
                 status.innerText = "✅ Done! / ¡Listo!";
             };
 
-            // Iniciar grabación con pedazos de 1 segundo (evita fallos en Mac)
-            mediaRecorder.start(1000);
-            
-            startTime = new Date();
-            timerDisplay.innerText = "00:00";
-            timerDisplay.classList.add('active');
-            timerInterval = setInterval(updateTimer, 1000);
-            status.innerText = "🔴 Recording... / Grabando...";
-            recordBtn.disabled = true; 
-            stopBtn.disabled = false;
-            uploadBtn.disabled = true;
+            // 3. El pequeño delay ayuda a macOS a inicializar el micro correctamente
+            setTimeout(() => {
+                mediaRecorder.start(1000); 
+                startTime = new Date();
+                timerDisplay.innerText = "00:00";
+                timerDisplay.classList.add('active');
+                timerInterval = setInterval(updateTimer, 1000);
+                status.innerText = "🔴 Recording... / Grabando...";
+                recordBtn.disabled = true; 
+                stopBtn.disabled = false;
+                uploadBtn.disabled = true;
+            }, 200);
 
         } catch (err) {
             console.error(err);
-            alert("Microphone error / Error de micrófono. Check permissions.");
+            alert("Error: " + err.message + ". Check mic permissions.");
         }
     };
 
     stopBtn.onclick = () => {
         if (mediaRecorder && mediaRecorder.state !== "inactive") {
             mediaRecorder.stop();
-            // Apagar físicamente el micro
             mediaRecorder.stream.getTracks().forEach(t => t.stop());
         }
         timerDisplay.classList.remove('active');
