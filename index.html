@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Lab / Laboratorio de Voz</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --bg: #f8fafc;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 2rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .timer {
+            font-family: monospace;
+            font-size: 3.5rem;
+            font-weight: bold;
+            margin: 1rem 0;
+            color: #1e293b;
+            display: none;
+        }
+
+        .timer.active { display: block; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.7; } }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        button {
+            width: 100%;
+            max-width: 280px;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        #recordBtn { background: var(--primary); color: white; }
+        #recordBtn.recording { background: var(--danger); }
+        #stopBtn { background: #f1f5f9; color: #475569; }
+        #uploadBtn { background: var(--success); color: white; margin-top: 10px; }
+
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button:hover:not(:disabled) { transform: translateY(-2px); }
+
+        audio { width: 100%; margin: 20px 0; border-radius: 8px; }
+        .status-msg { font-size: 0.9rem; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 style="margin:0; color:var(--primary)">Voice Lab 🎙️</h1>
+    <p style="color:#64748b; margin-bottom:20px;">English / Español</p>
+
+    <div id="timer" class="timer">00:00</div>
+
+    <div class="controls">
+        <button id="recordBtn">🎤 <span id="btnText">Start / Empezar</span></button>
+        <button id="stopBtn" disabled>⏹️ Stop / Detener</button>
+    </div>
+
+    <audio id="preview" controls></audio>
+
+    <div id="status" class="status-msg">Ready / Listo</div>
+
+    <div class="controls">
+        <button id="uploadBtn" disabled>📤 Send / Enviar</button>
+    </div>
+</div>
+
+<script>
+    let mediaRecorder; 
+    let audioChunks = []; 
+    let startTime; 
+    let timerInterval;
+    const scriptURL = "https://script.google.com/macros/s/AKfycbxIpDmT4KBPNeKLCEa9JVqixS1zetpiRF2NXAoAsXPW5bY08gFa85uCukEywCCu_SI9mA/exec";
+    
+    const recordBtn = document.getElementById('recordBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const status = document.getElementById('status');
+    const timerDisplay = document.getElementById('timer');
+    const preview = document.getElementById('preview');
+
+    function updateTimer() {
+        const now = new Date();
+        const diff = new Date(now - startTime);
+        const mins = String(diff.getUTCMinutes()).padStart(2, '0');
+        const secs = String(diff.getUTCSeconds()).padStart(2, '0');
+        timerDisplay.innerText = `${mins}:${secs}`;
+    }
+
+    recordBtn.onclick = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            // Detección mejorada de formatos para Mac y iPad
+            const types = [
+                'audio/webm;codecs=opus', 
+                'audio/webm', 
+                'audio/mp4', 
+                'audio/aac'
+            ];
+            const supportedType = types.find(type => MediaRecorder.isTypeSupported(type));
+            
+            mediaRecorder = new MediaRecorder(stream, { mimeType: supportedType });
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = e => {
+                if (e.data.size > 0) audioChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                clearInterval(timerInterval);
+                const blob = new Blob(audioChunks, { type: supportedType });
+                
+                if (blob.size === 0) {
+                    status.innerText = "❌ Error: Audio empty / Audio vacío";
+                    return;
+                }
+
+                const audioUrl = URL.createObjectURL(blob);
+                preview.src = audioUrl;
+                uploadBtn.disabled = false;
+                status.innerText = "✅ Done! / ¡Listo!";
+            };
+
+            // Iniciar grabación con pedazos de 1 segundo (evita fallos en Mac)
+            mediaRecorder.start(1000);
+            
+            startTime = new Date();
+            timerDisplay.innerText = "00:00";
+            timerDisplay.classList.add('active');
+            timerInterval = setInterval(updateTimer, 1000);
+            status.innerText = "🔴 Recording... / Grabando...";
+            recordBtn.disabled = true; 
+            stopBtn.disabled = false;
+            uploadBtn.disabled = true;
+
+        } catch (err) {
+            console.error(err);
+            alert("Microphone error / Error de micrófono. Check permissions.");
+        }
+    };
+
+    stopBtn.onclick = () => {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+            // Apagar físicamente el micro
+            mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        }
+        timerDisplay.classList.remove('active');
+        recordBtn.disabled = false; 
+        stopBtn.disabled = true;
+    };
+
+    uploadBtn.onclick = function() {
+        status.innerText = "⏳ Sending... / Enviando...";
+        uploadBtn.disabled = true;
+        
+        const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+            const base64Data = event.target.result.split(',')[1];
+            fetch(scriptURL, { 
+                method: 'POST', 
+                mode: 'no-cors', 
+                body: JSON.stringify({ 
+                    audio: base64Data, 
+                    type: mediaRecorder.mimeType 
+                }) 
+            })
+            .then(() => { 
+                status.innerText = "🚀 SENT! / ¡ENVIADO!"; 
+                alert("Success! / ¡Éxito!"); 
+            })
+            .catch((err) => { 
+                console.error(err);
+                status.innerText = "❌ Error"; 
+                uploadBtn.disabled = false; 
+            });
+        };
+        reader.readAsDataURL(blob);
+    };
+</script>
+</body>
+</html>
